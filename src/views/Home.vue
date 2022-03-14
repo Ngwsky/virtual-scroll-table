@@ -18,7 +18,7 @@
          ></v-text-field>
       </template>
    </v-slider>
-   <VirtualScrollTable :height="480" :bench="1" :headers=headers :items=items />
+   <VirtualScrollTable v-model="selected" :height="480" :bench="1" :headers=headers :items=items show-select />
    </v-container>
 </template>
 
@@ -36,6 +36,7 @@ export default {
        headers: ['ID', 'Name', 'Type', 'Value'],
        items: [],
        types: ['Bank transfer', 'Cash', 'Credit card', 'Coupon', 'Family mart'],
+       selected: [],
     }
   },
   methods: {
@@ -56,6 +57,9 @@ export default {
   watch: {
      slider: function (val) {
         this.refreshItems(val);
+      },
+      selected: function(val) {
+         console.log("selected", val);
       }
    },
 }

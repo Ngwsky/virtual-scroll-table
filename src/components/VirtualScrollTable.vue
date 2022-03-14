@@ -6,12 +6,13 @@
     <template v-slot:default>
       <thead ref="thead">
         <tr>
+          <th v-if="showSelect"><v-simple-checkbox :value="isSelectedAll" :indeterminate="indeterminateSelectedAll" @input="selectAll"></v-simple-checkbox></th>
           <th v-for="(header, index) in headers"
           :key="index" @click="sort(index)"
           >{{ header }}
             <v-menu offset-y :close-on-content-click="false">
               <template v-slot:activator="{ on, attrs }">
-                <v-icon :color="fvals[index] ? 'blue darken-4' : 'blue-grey darken-1'" dense v-bind="attrs" v-on="on">{{ svgFilterVariant }}</v-icon>
+                <v-icon :color="fvals[index] ? 'blue darken-4' : 'blue-grey'" dense v-bind="attrs" v-on="on">{{ svgFilterVariant }}</v-icon>
               </template>
               <v-card outlined>
                 <v-autocomplete clearable v-model="fvals[index]" :items="filters[index]" dense></v-autocomplete>
@@ -29,11 +30,12 @@
           >
           </td>
         </tr>
-        <tr v-for="(item, index) in vitems"
-          :key="index"
+        <tr v-for="(vitem, viidx) in vitems"
+          :key="viidx"
         >
-          <td v-for="(value, index) in item"
-            :key="index">{{ value }}</td>
+          <td v-if="showSelect"><v-simple-checkbox :value="vitems[viidx].isSelected" @input="selectRow(viidx)"></v-simple-checkbox></td>
+          <td v-for="(value, hidx) in headers"
+            :key="hidx">{{ vitem[hidx] }}</td>
         </tr>
         <tr v-if="start + rowsPerPage < filteredItems.length">
           <td
@@ -59,7 +61,9 @@ export default {
     bench: {
       type: Number,
       default: 0
-    }
+    },
+    showSelect: Boolean,
+    value: Array,
   },
   data () {
     return {
@@ -76,15 +80,23 @@ export default {
       fvals: [],
       sortidx: null,
       sortorder: 0,
+      itemsSelected: [],
+      isSelectedAll: false,
+      indeterminateSelectedAll: false,
     }
   },
   mounted() {
     this.$refs.vstable.$el.childNodes[0].addEventListener("scroll", this.onScroll);
     this.headerHeight = this.$refs.thead.getBoundingClientRect().height;
     this.rowHeight = this.$refs.thead.getBoundingClientRect().height; // ホントならtbodyの一行から取得？でも一行の高さを固定にしないとおかしなことになるから、とりあえずはヘッダーの高さで。
-    this.filteredItems = this.items.slice();
+    this.itemsSelected = this.items.map(() => false);
+    this.filteredItems = this.items.map((item, index) => { 
+      item.orgItemIdx = index;
+      item.isSelected = false;
+      return item;
+    });
     this.filters = this.headers.map((header, index) => Array.from(new Set(this.items.map(item => item[index]))));
-    this.fvals = this.headers.map(val => null);
+    this.fvals = this.headers.map(() => null);
   },
   methods: {
     onScroll(e) {
@@ -125,12 +137,44 @@ export default {
         return true;
       });
     },
+    selectAll(){
+      let newVal = this.indeterminateSelectedAll ? true : !this.isSelectedAll;
+      this.isSelectedAll = newVal;
+      this.indeterminateSelectedAll = false;
+      this.filteredItems = this.filteredItems.map(fi => {
+        this.itemsSelected[fi.orgItemIdx] = newVal;
+        fi.isSelected = newVal;
+        return fi;
+      });
+      this.$emit('input', this.items.filter((item, index) => this.itemsSelected[index]));
+    },
+    selectRow(vindex){
+      let newVal = !this.itemsSelected[this.vitems[vindex].orgItemIdx];
+
+      this.itemsSelected[this.vitems[vindex].orgItemIdx] = newVal;
+      this.filteredItems[this.start + vindex].isSelected = newVal;
+      this.filteredItems.splice();
+
+      if (this.filteredItems.findIndex(v => v !== newVal) === -1) {
+        this.isSelectedAll = newVal;
+        this.indeterminateSelectedAll = false;
+      } else {
+        this.isSelectedAll = false;
+        this.indeterminateSelectedAll = true;
+      }
+
+      this.$emit('input', this.items.filter((item, index) => this.itemsSelected[index]));
+    }
   },
   watch: {
     items: function(val) {
-      this.filteredItems = this.items.slice();
-      this.filters = this.headers.map((header, index) => Array.from(new Set(this.items.map(item => item[index]))));
-      this.fvals = this.headers.map(val => null);
+      this.filteredItems = this.items.map((item, index) => { 
+        item.orgItemIdx = index;
+        item.isSelected = false;
+        return item;
+      });
+      this.filters = this.headers.map((header, index) => Array.from(new Set(val.map(item => item[index]))));
+      this.fvals = this.headers.map(() => null);
     },
     sortorder: function(val) {
       if (val === 0) {
@@ -144,6 +188,16 @@ export default {
     },
     filteredItems: function(val) {
       this.filters = this.headers.map((header, index) => Array.from(new Set(val.map(item => item[index]))));
+      if (val) {
+        let firstVal = val[0].isSelected;
+        if (val.findIndex(v => v.isSelected !== firstVal) === -1) {
+          this.isSelectedAll = firstVal;
+          this.indeterminateSelectedAll = false;
+        } else {
+          this.isSelectedAll = false;
+          this.indeterminateSelectedAll = true;
+        }
+      }
     }
   },
   computed: {
