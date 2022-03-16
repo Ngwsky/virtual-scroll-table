@@ -18,7 +18,7 @@
          ></v-text-field>
       </template>
    </v-slider>
-   <VirtualScrollTable v-model="selected" :height="480" :bench="1" :headers=headers :items=items show-select multi-sort />
+   <VirtualScrollTable v-model="selected" :height="480" :bench="18" :headers=headers :items=items show-select multi-sort />
    </v-container>
 </template>
 

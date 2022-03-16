@@ -145,7 +145,7 @@ export default {
           e.target.scrollTop = scrollTop;
           this.scrollHeight = this.$refs.vstable.$el.childNodes[0].scrollHeight;
         });
-      }, 20);
+      }, 2);
     },
     headerMouseOver(index){
       this.hoveredHeaderIdx = index;
