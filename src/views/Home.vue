@@ -18,7 +18,7 @@
          ></v-text-field>
       </template>
    </v-slider>
-   <VirtualScrollTable v-model="selected" :height="480" :bench="1" :headers=headers :items=items show-select />
+   <VirtualScrollTable v-model="selected" :height="480" :bench="1" :headers=headers :items=items show-select multi-sort />
    </v-container>
 </template>
 
@@ -33,7 +33,7 @@ export default {
    data () {
     return {
        slider: 9999,
-       headers: ['ID', 'Name', 'Type', 'Value'],
+       headers: ['ID', 'Name', 'Type', 'Value', '日本語'],
        items: [],
        types: ['Bank transfer', 'Cash', 'Credit card', 'Coupon', 'Family mart'],
        selected: [],
@@ -43,24 +43,30 @@ export default {
      refreshItems: function(val){
         let temp = [];
         let b = Date.now();
+        let kana = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわゐうゑをんアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヰウヱヲンがぎぐげござじずぜぞだぢづでどばびぶべぼヴガギグゲゴザジズゼゾダヂヅデドバビブベボぱぴぷぺぽパピプペポぁぃぅぇぉっゃゅょゎァィゥェォヵヶッャュョー";
         console.log("start generate data ...");
-        for(let i = 1; i <= val; i++) {
-           temp.push([i, Math.random().toString(36).slice(-8), this.types[Math.floor(Math.random() * this.types.length)], Math.floor(Math.random() * 999999)]);
+        for (let i = 1; i <= val; i++) {
+           temp.push([i, Math.random().toString(36).slice(-8), this.types[Math.floor(Math.random() * this.types.length)], Math.floor(Math.random() * 999999),
+              Array(2 + Math.floor(Math.random() * 5)).fill().map(() => {
+                let s = Math.floor(Math.random() * kana.length);
+                return kana.substring(s, s + 1);
+              }).join('')
+              ]);
         }
         console.log("complete", (Date.now() - b) / 1000.0, "sec");
         this.items = temp;
      }
   },
   created(){
-     this.refreshItems(this.slider);
+    this.refreshItems(this.slider);
   },
   watch: {
-     slider: function (val) {
-        this.refreshItems(val);
-      },
-      selected: function(val) {
-         console.log("selected", val);
-      }
-   },
+    slider: function (val) {
+      this.refreshItems(val);
+    },
+    selected: function(val) {
+      console.log("selected", val);
+    }
+  },
 }
 </script>

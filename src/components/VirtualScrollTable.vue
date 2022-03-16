@@ -1,31 +1,39 @@
 <template>
   <v-simple-table fixed-header
     :height="height"
+    :dense="dense"
     ref="vstable"
   >
     <template v-slot:default>
       <thead ref="thead">
         <tr>
-          <th v-if="showSelect"><v-simple-checkbox :value="isSelectedAll" :indeterminate="indeterminateSelectedAll" @input="selectAll"></v-simple-checkbox></th>
+          <th v-if="showSelect"><v-simple-checkbox :value="isSelectedAll" :indeterminate="indeterminateSelectedAll" @input="selectAll" :ripple="false"></v-simple-checkbox></th>
           <th v-for="(header, index) in headers"
-          :key="index" @click="sort(index)"
+          :key="index" @click="toggleSortOrder(index)" @mouseover="headerMouseOver(index)" @mouseleave="headerMouseLeave(index)"
           >{{ header }}
-            <v-menu offset-y :close-on-content-click="false">
+            <v-icon class="ml-2" :color="-1 < sortIdxs.findIndex(v => v === index) ? 'blue darken-4' : 'blue-grey lighten-2'" :style="-1 < sortIdxs.findIndex(v => v === index) || hoveredHeaderIdx === index ? 'visibility:visible;' : 'visibility:hidden;'">
+              <template v-if="-1 < sortIdxs.findIndex(v => v === index)">
+                <template v-if="sortOrders[sortIdxs.findIndex(v => v === index)] == -1">{{ svgChevronDown }}</template>
+                <template v-else-if="sortOrders[sortIdxs.findIndex(v => v === index)] == 1">{{ svgChevronUp }}</template>
+              </template>
+              <template v-else>{{ svgChevronUp }}</template>
+            </v-icon>
+            <v-chip color="blue-grey lighten-4" small class="px-2" v-if="-1 < sortIdxs.findIndex(v => v === index)">{{ sortIdxs.findIndex(v => v === index) + 1 }}</v-chip>
+            <v-menu left offset-y :close-on-content-click="false">
               <template v-slot:activator="{ on, attrs }">
-                <v-icon :color="fvals[index] ? 'blue darken-4' : 'blue-grey'" dense v-bind="attrs" v-on="on">{{ svgFilterVariant }}</v-icon>
+                <v-icon class="float-right" :color="0 < filterValues[index].length ? 'blue darken-4' : 'blue-grey lighten-2'" dense v-bind="attrs" v-on="on">{{ svgFilterVariant }}</v-icon>
               </template>
               <v-card outlined>
-                <v-autocomplete clearable v-model="fvals[index]" :items="filters[index]" dense></v-autocomplete>
+                <v-autocomplete clearable deletable-chips multiple small-chips v-model="filterValues[index]" :items="filterSelectOptions[index]" dense class="mx-1"></v-autocomplete>
               </v-card>
             </v-menu>
-            <v-icon v-if="sortidx == index"><template v-if="sortorder == -1">{{ svgChevronDown }}</template><template v-else-if="sortorder == 1">{{ svgChevronUp }}</template></v-icon>
           </th>
         </tr>
       </thead>
       <tbody>
-        <tr v-if="start > 0">
+        <tr v-if="0 < paddingtop">
           <td
-            :colspan="headers.length"
+            :colspan="showSelect ? headers.length + 1 : headers.length"
             :style="'padding-top:' + paddingtop + 'px'"
           >
           </td>
@@ -33,13 +41,13 @@
         <tr v-for="(vitem, viidx) in vitems"
           :key="viidx"
         >
-          <td v-if="showSelect"><v-simple-checkbox :value="vitems[viidx].isSelected" @input="selectRow(viidx)"></v-simple-checkbox></td>
+          <td v-if="showSelect"><v-simple-checkbox :value="vitems[viidx][headers.length + 1]" @input="selectRow(viidx)" :ripple="false"></v-simple-checkbox></td>
           <td v-for="(value, hidx) in headers"
             :key="hidx">{{ vitem[hidx] }}</td>
         </tr>
-        <tr v-if="start + rowsPerPage < filteredItems.length">
+        <tr v-if="0 < paddingbottom">
           <td
-            :colspan="headers.length"
+            :colspan="showSelect ? headers.length + 1 : headers.length"
             :style="'padding-bottom:' + paddingbottom + 'px'"
           >
           </td>
@@ -60,9 +68,24 @@ export default {
     items: Array,
     bench: {
       type: Number,
-      default: 0
+      default: 0,
     },
-    showSelect: Boolean,
+    showSelect: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    multiSort: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    locale: String,
+    dense: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
     value: Array,
   },
   data () {
@@ -71,70 +94,148 @@ export default {
       timeout: null,
       headerHeight: 48,
       rowHeight: 48,
+      scrollHeight: 0,
       svgChevronDown: mdiChevronDown,
       svgChevronUp: mdiChevronUp,
       svgFilterVariant: mdiFilterVariant,
       svgSortVariant : mdiSortVariant,
+      hoveredHeaderIdx: null,
+      orgItems: [],
       filteredItems: [],
-      filters: [],
-      fvals: [],
-      sortidx: null,
-      sortorder: 0,
+      filterSelectOptions: [],
+      filterValues: [],
+      sortIdxs: [],
+      sortOrders: [],
       itemsSelected: [],
       isSelectedAll: false,
       indeterminateSelectedAll: false,
+      collator: null,
     }
+  },
+  created() {
+    this.itemsSelected = this.items.map(() => false);
+    this.orgItems = this.items.map((item, index) => {
+      let r = item.slice();
+      r.push(index); // orgItemIdx
+      r.push(false); // isSelected
+      return r;
+    });
+    Object.freeze(this.orgItems);
+    this.filteredItems = this.orgItems.slice();
+    Object.freeze(this.filteredItems);
+    this.filterSelectOptions = this.headers.map((header, index) => Array.from(new Set(this.orgItems.map(item => item[index]))));
+    this.filterValues = this.headers.map(() => []);
   },
   mounted() {
     this.$refs.vstable.$el.childNodes[0].addEventListener("scroll", this.onScroll);
     this.headerHeight = this.$refs.thead.getBoundingClientRect().height;
     this.rowHeight = this.$refs.thead.getBoundingClientRect().height; // ホントならtbodyの一行から取得？でも一行の高さを固定にしないとおかしなことになるから、とりあえずはヘッダーの高さで。
-    this.itemsSelected = this.items.map(() => false);
-    this.filteredItems = this.items.map((item, index) => { 
-      item.orgItemIdx = index;
-      item.isSelected = false;
-      return item;
-    });
-    this.filters = this.headers.map((header, index) => Array.from(new Set(this.items.map(item => item[index]))));
-    this.fvals = this.headers.map(() => null);
+    this.scrollHeight = this.$refs.vstable.$el.childNodes[0].scrollHeight;
   },
   methods: {
     onScroll(e) {
-      this.timeout && clearTimeout(this.timeout); 
+      this.timeout && clearTimeout(this.timeout);
       this.timeout = setTimeout(() => {
         const { scrollTop } = e.target;
-        let rows = Math.ceil((scrollTop - this.rowHeight) / this.rowHeight);
+        let rows = Math.ceil((scrollTop - this.rowHeight) / this.rowHeight) - Math.floor(this.bench / 2);
         if (rows < 0) rows = 0;
         this.start = rows + this.rowsPerPage > this.filteredItems.length ?
           this.filteredItems.length - this.rowsPerPage: rows;
         this.$nextTick(() => {
           e.target.scrollTop = scrollTop;
+          this.scrollHeight = this.$refs.vstable.$el.childNodes[0].scrollHeight;
         });
       }, 20);
     },
-    sort(idx){
-      if (this.sortidx == null || this.sortidx !== idx) {
-        this.sortidx = idx;
-        this.sortorder = 1;
-      } else {
-        if (this.sortorder === -1) {
-          this.sortidx = null;
-          this.sortorder = 0;
-        } else if (this.sortorder === 1) {
-          this.sortorder = -1;
+    headerMouseOver(index){
+      this.hoveredHeaderIdx = index;
+    },
+    headerMouseLeave(){
+      this.hoveredHeaderIdx = null;    
+    },
+    toggleSortOrder(idx){
+      if (this.multiSort) {
+        let targetIdx = this.sortIdxs.findIndex(v => v === idx);
+        if (targetIdx === -1) {
+          this.sortIdxs.push(idx);
+          this.sortOrders.push(1);
         } else {
-          this.sortorder = 1;
+          if (this.sortOrders[targetIdx] === -1) {
+            this.sortIdxs.splice(targetIdx, 1);
+            this.sortOrders.splice(targetIdx, 1);
+            if (this.sortIdxs.length === 0) {
+              this.filter(this.filterValues);
+              return;
+            }
+          } else if (this.sortOrders[targetIdx] === 1) {
+            this.sortOrders[targetIdx] = -1;
+          }
+        }
+      } else {
+        if (this.sortIdxs && 0 < this.sortIdxs.length && this.sortIdxs[0] === idx) {
+          if (this.sortOrders[0] === -1) {
+            this.sortIdxs = [];
+            this.sortOrders = [];
+            this.filter(this.filterValues);
+            return;
+          } else if (this.sortOrders[0] === 1) {
+            this.sortOrders = [-1];
+          } else {
+            this.sortOrders = [1];
+          }
+        } else {
+          this.sortIdxs = [idx];
+          this.sortOrders = [1];
         }
       }
+      this.sort();
     },
     filter(vals){
-      this.filteredItems = this.items.filter(item => {
+      this.filteredItems = this.orgItems.filter(item => {
         for (let i = 0; i < vals.length; i++) {
-          if (vals[i] && vals[i] !== item[i]) {
-            return false;
+          if (vals[i] && 0 < vals[i].length) {
+            if (vals[i].findIndex(v => v === item[i]) === -1) return false;
           }
         }
         return true;
+      });
+      this.refreshSelectAll(this.filteredItems);
+      this.refreshFilterSelections(this.filteredItems);
+      this.sort(this.sortOrders);
+    },
+    refreshFilterSelections(val){
+      this.filterSelectOptions = this.headers.map((header, index) => {
+        if (this.filterValues[index] && 0 < this.filterValues[index].length) return this.filterSelectOptions[index];
+        return Array.from(new Set(val.map(item => item[index])));
+      });
+    },
+    refreshSelectAll(val){
+      if (val) {
+        let firstVal = val[0][this.headers.length + 1];
+        if (val.findIndex(v => v[this.headers.length + 1] !== firstVal) === -1) {
+          this.isSelectedAll = firstVal;
+          this.indeterminateSelectedAll = false;
+        } else {
+          this.isSelectedAll = false;
+          this.indeterminateSelectedAll = true;
+        }
+      }
+    },
+    sort() {
+      if (!this.sortIdxs || this.sortIdxs.length < 1 || this.sortOrders[0] === 0) return;
+      if (!this.collator) this.collator = this.locale ? new Intl.Collator(this.locale) : new Intl.Collator('ja');
+      this.filteredItems = this.filteredItems.sort((a, b) => {
+        for (let i = 0; i < this.sortIdxs.length; i++) {
+          if (typeof a[this.sortIdxs[i]] == 'string' && typeof b[this.sortIdxs[i]] == 'string') {
+            let c = this.collator.compare(a[this.sortIdxs[i]], b[this.sortIdxs[i]]);
+            if (c !== 0) {
+              return c * this.sortOrders[i];
+            }
+          } else {
+            if (a[this.sortIdxs[i]] != b[this.sortIdxs[i]]) return (a[this.sortIdxs[i]] - b[this.sortIdxs[i]]) * this.sortOrders[i];
+          }
+        }
+        return 0;
       });
     },
     selectAll(){
@@ -142,17 +243,17 @@ export default {
       this.isSelectedAll = newVal;
       this.indeterminateSelectedAll = false;
       this.filteredItems = this.filteredItems.map(fi => {
-        this.itemsSelected[fi.orgItemIdx] = newVal;
-        fi.isSelected = newVal;
+        this.itemsSelected[fi[this.headers.length]] = newVal;
+        fi[this.headers.length + 1] = newVal;
         return fi;
       });
       this.$emit('input', this.items.filter((item, index) => this.itemsSelected[index]));
     },
     selectRow(vindex){
-      let newVal = !this.itemsSelected[this.vitems[vindex].orgItemIdx];
+      let newVal = !this.itemsSelected[this.vitems[vindex][this.headers.length]];
 
-      this.itemsSelected[this.vitems[vindex].orgItemIdx] = newVal;
-      this.filteredItems[this.start + vindex].isSelected = newVal;
+      this.itemsSelected[this.vitems[vindex][this.headers.length]] = newVal;
+      this.filteredItems[this.start + vindex][this.headers.length + 1] = newVal;
       this.filteredItems.splice();
 
       if (this.filteredItems.findIndex(v => v !== newVal) === -1) {
@@ -164,54 +265,53 @@ export default {
       }
 
       this.$emit('input', this.items.filter((item, index) => this.itemsSelected[index]));
-    }
+    },
   },
   watch: {
     items: function(val) {
-      this.filteredItems = this.items.map((item, index) => { 
-        item.orgItemIdx = index;
-        item.isSelected = false;
-        return item;
+      this.orgItems = this.items.map((item, index) => {
+        let r = item.slice();
+        r.push(index); // orgItemIdx
+        r.push(false); // isSelected
+        return r;
       });
-      this.filters = this.headers.map((header, index) => Array.from(new Set(val.map(item => item[index]))));
-      this.fvals = this.headers.map(() => null);
+      Object.freeze(this.orgItems);
+      this.filteredItems = this.orgItems.slice();
+      Object.freeze(this.filteredItems);
+      this.filterSelectOptions = this.headers.map((header, index) => Array.from(new Set(val.map(item => item[index]))));
+      this.filterValues = this.headers.map(() => []);
+      this.$nextTick(() => {
+        this.scrollHeight = this.$refs.vstable.$el.childNodes[0].scrollHeight;
+      });
     },
-    sortorder: function(val) {
-      if (val === 0) {
-        this.filter(this.fvals);
-      } else {
-        this.filteredItems = this.filteredItems.sort((a, b) => a[this.sortidx] < b[this.sortidx] ? val * -1: val);
-      }
+    locale: function(val) {
+      this.collator = val ? new Intl.Collator(val) : new Intl.Collator();
     },
-    fvals: function(val) {
+    filterValues: function(val) {
       this.filter(val);
     },
-    filteredItems: function(val) {
-      this.filters = this.headers.map((header, index) => Array.from(new Set(val.map(item => item[index]))));
-      if (val) {
-        let firstVal = val[0].isSelected;
-        if (val.findIndex(v => v.isSelected !== firstVal) === -1) {
-          this.isSelectedAll = firstVal;
-          this.indeterminateSelectedAll = false;
-        } else {
-          this.isSelectedAll = false;
-          this.indeterminateSelectedAll = true;
-        }
-      }
-    }
   },
   computed: {
     rowsPerPage() {
-      return Math.floor((this.height - this.rowHeight) / this.rowHeight) + this.bench;
+      return Math.floor(this.height / this.rowHeight) - 1;
     },
     vitems() {
-      return this.filteredItems.slice(this.start, this.rowsPerPage + this.start);
+/*
+      let s = Date.now();
+      console.log('vitems start');
+*/
+      let r = this.filteredItems.slice(this.start, this.start + this.rowsPerPage + this.bench);
+      Object.freeze(r);
+/*
+      console.log('vitems end', (Date.now() - s) / 1000.0, "sec");
+*/
+      return r;
     },
     paddingtop() {
       return this.start * this.rowHeight;
     },
     paddingbottom() {
-      return this.rowHeight * (this.filteredItems.length - this.start - this.rowsPerPage);
+      return this.rowHeight * (this.filteredItems.length - (this.start + this.rowsPerPage + this.bench));
     },
   },
 }
